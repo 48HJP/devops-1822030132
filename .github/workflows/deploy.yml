@@ -1,0 +1,90 @@
+name: CI/CD Pipeline Deploy Website
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Cấp quyền cho GitHub Actions deploy lên GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Không cho phép 2 tiến trình deploy cùng lúc làm sai lệch trạng thái
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================
+  # JOB 1: CHECK (Kiểm tra điều kiện tiên quyết trước khi Deploy)
+  # ============================================================
+  check:
+    name: "Kiểm tra cấu trúc mã nguồn"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 1. Kiểm tra sự tồn tại của 3 file bắt buộc
+        run: |
+          echo "=================================================="
+          echo "Đang kiểm tra 3 file: index.html, style.css, script.js"
+          echo "=================================================="
+          MISSING=0
+          for file in index.html style.css script.js; do
+            if [ -f "$file" ]; then
+              echo "✅ [PASS] Đã tìm thấy: $file"
+            else
+              echo "❌ [FAIL] Không tìm thấy file bắt buộc: $file"
+              MISSING=1
+            fi
+          done
+
+          if [ $MISSING -ne 0 ]; then
+            echo "::error::Thiếu file bắt buộc trong mã nguồn! Dừng pipeline."
+            exit 1
+          fi
+
+      - name: 2. Kiểm tra thẻ <title> trong file index.html
+        run: |
+          echo "=================================================="
+          echo "Đang kiểm tra thẻ <title> trong file index.html"
+          echo "=================================================="
+          if grep -i -q "<title>" index.html; then
+            echo "✅ [PASS] Đã tìm thấy thẻ <title> hợp lệ:"
+            grep -i "<title>" index.html
+          else
+            echo "::error::File index.html không chứa thẻ bắt buộc <title>!"
+            echo "❌ Pipeline bị dừng để ngăn chặn triển khai website lỗi!"
+            exit 1
+          fi
+
+  # ============================================================
+  # JOB 2: DEPLOY (Chỉ thực thi khi JOB CHECK thành công)
+  # ============================================================
+  deploy:
+    name: "Triển khai lên GitHub Pages"
+    needs: check
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cấu hình môi trường GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Đóng gói tài nguyên web (Artifact)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Triển khai website lên GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
